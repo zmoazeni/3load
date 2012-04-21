@@ -8,6 +8,8 @@ import Database.LevelDB
 import Data.ByteString.Char8 hiding (take, putStrLn, getLine, map)
 import Control.Monad.IO.Class (liftIO)
 
+data RawAction = String String | Number Int
+
 data Action = Rock | Paper | Scissors | Quit | Invalid
             deriving Show
                      
@@ -19,8 +21,8 @@ main = do
   runResourceT $ saveValue "bar"
   forever $ getLine >>= process
           
-  where randomAction = (randomRIO (1, 3) :: IO Int) >>= return . parseAction . show
-        process s = case parseAction s of
+  where randomAction = randomRIO (1, 3) >>= return . parseAction . Number
+        process s = case parseAction (String s) of
           Quit -> putStrLn "exiting" >> exitWith ExitSuccess
           Invalid -> putStrLn "Unknown action. <rock|paper|scissors|quit>"
           c -> do r <- randomAction
@@ -39,21 +41,22 @@ readValue = do
   db <- open "/tmp/zachtestldb" [CreateIfMissing, CacheSize 2048]
   get db [] "foo" >>= liftIO . print
             
-parseAction :: String -> Action  
-parseAction a = case a' of
-  ('r':_) -> Rock
-  "1"     -> Rock
+parseAction :: RawAction -> Action  
+parseAction a = case formatted a of
+  String ('r':_) -> Rock
+  Number 1       -> Rock
   
-  ('p':_) -> Paper
-  "2"     -> Paper
+  String ('p':_) -> Paper
+  Number 2       -> Paper
   
-  ('s':_) -> Scissors
-  "3"     -> Scissors
+  String ('s':_) -> Scissors
+  Number 3       -> Scissors
   
-  "quit"  -> Quit
-  _       -> Invalid
+  String "quit"  -> Quit
+  _               -> Invalid
   
-  where a' = map toLower a
+  where formatted (String s) = String $ map toLower s
+        formatted x = x
         
 evaluate :: (Action, Action) -> Result
 evaluate (Rock, Scissors)  = Win
