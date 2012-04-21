@@ -20,13 +20,13 @@ namespace :clean do
     sh "rm -rf ./bin #{files.pathmap("%X")}"
   end
 
-  # desc "Remove the databases in db/"
-  # task :db do
-  #   sh "rm -rf ./db/db-*"
-  # end
+  desc "Remove the databases in db/"
+  task :db do
+    sh "rm -rf ./db/*.ldb"
+  end
 
-  # desc "Clean both compiled objects and db"
-  # task :all => [:src, :db]
+  desc "Clean both compiled objects and db"
+  task :all => [:src, :db]
 end
 desc "Clean the compiled objects, same as clean:src"
 task :clean => "clean:src"
