@@ -5,7 +5,8 @@ import Control.Monad
 import System.Exit
 import System.Random
 import Database.LevelDB
-import Data.ByteString.Char8 hiding (take, putStrLn, getLine, map)
+import Data.Text (Text)
+import Data.Text.Encoding
 import Control.Monad.IO.Class (liftIO)
 
 data RawAction = String String | Number Int
@@ -31,15 +32,15 @@ main = do
                     Lose -> putStrLn $ "Your " ++ show c ++ " lost against " ++ show r ++ "."
                     Tie  -> putStrLn $ show c ++ " tied."
                     
-saveValue :: MonadResource m => ByteString -> m ()
+saveValue :: MonadResource m => Text -> m ()
 saveValue value = do
   db <- open "/tmp/zachtestldb" [CreateIfMissing, CacheSize 2048]
-  put db [] "foo" value
+  put db [] (encodeUtf8 "foo") (encodeUtf8 value)
   
 readValue :: MonadResource m => m ()
 readValue = do
   db <- open "/tmp/zachtestldb" [CreateIfMissing, CacheSize 2048]
-  get db [] "foo" >>= liftIO . print
+  get db [] (encodeUtf8 "foo") >>= liftIO . print
             
 parseAction :: RawAction -> Action  
 parseAction a = case formatted a of
