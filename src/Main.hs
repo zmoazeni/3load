@@ -65,7 +65,7 @@ main = runResourceT $ do
           case processed of
             PQuit     -> liftIO $ exitWith ExitSuccess
             PHelp     -> return ()
-            PResult r -> do save db r
+            PResult r -> do saveTurn db r
                             turns <- getTurns db
                             liftIO $ print turns
     
@@ -85,8 +85,8 @@ process input = case parseAction (String input) of
 databasePath :: FilePath
 databasePath = "./db/turns.ldb"
 
-save :: MonadResource m => DB -> Result -> m ()
-save db result = do
+saveTurn :: MonadResource m => DB -> Result -> m ()
+saveTurn db result = do
   v <- get db [] (encodeUtf8 "results")
   let results = case v of
         Just x -> result:(decode' x :: [Result])
