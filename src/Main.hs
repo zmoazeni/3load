@@ -63,9 +63,11 @@ main = runResourceT $ do
           (report, processed) <- process line
           liftIO $ putStrLn report
           case processed of
-            PQuit -> liftIO $ exitWith ExitSuccess
-            PHelp -> return ()
-            PResult r -> save db r >> reportTurns db
+            PQuit     -> liftIO $ exitWith ExitSuccess
+            PHelp     -> return ()
+            PResult r -> do save db r
+                            turns <- getTurns db
+                            liftIO $ print turns
     
 process :: MonadResource m => String -> m (String, Processed)
 process input = case parseAction (String input) of
@@ -92,10 +94,10 @@ save db result = do
                   
   put db [] (encodeUtf8 "results") (encode' results)
 
-reportTurns :: MonadResource m => DB -> m ()
-reportTurns db = do
+getTurns :: MonadResource m => DB -> m [Result]
+getTurns db = do
   v <- get db [] (encodeUtf8 "results")
-  liftIO $ print (decode' (fromJust v) :: [Result])
+  return $ decode' (fromJust v)
 
 parseAction :: RawAction -> Action
 parseAction a = case formatted a of
