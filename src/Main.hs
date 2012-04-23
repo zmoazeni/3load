@@ -21,6 +21,8 @@ type Turn = (Action, Action)
 
 data Result = Win {turn :: Turn} | Lose {turn :: Turn} | Tie {turn :: Turn}
             deriving Show
+                     
+data Processed = PResult Result | PQuit | PHelp                     
 
 instance Binary Action where
   put a = Bin.put (intForAction a)
@@ -51,51 +53,49 @@ instance Binary Result where
              2 -> Tie t
              e -> error $ "Unknown result " ++ (show e)
 
-main :: IO ()
-main = do forever $ getLine >>= process
+main :: IO ()             
+main = runResourceT $ do
+  db <- open databasePath [CreateIfMissing, CacheSize 2048]
+  forever $ processLine db
+  
+  where processLine db = do 
+          line <- liftIO $ getLine
+          (report, processed) <- process line
+          liftIO $ putStrLn report
+          case processed of
+            PQuit -> liftIO $ exitWith ExitSuccess
+            PHelp -> return ()
+            PResult r -> save db r >> reportTurns db
     
-process :: String -> IO ()
+process :: MonadResource m => String -> m (String, Processed)
 process input = case parseAction (String input) of
-  Quit    -> putStrLn "exiting" >> exitWith ExitSuccess
-  Invalid -> putStrLn "Unknown action. <rock|paper|scissors|quit>"
+  Quit    -> return ("exiting", PQuit)
+  Invalid -> return ("Unknown action. <rock|paper|scissors|quit>", PHelp)
   c       -> do r <- randomAction
                 let result = evaluate (c, r)
-                report result
-                save result
-                reportTurns
-  where randomAction = randomRIO (1, 3) >>= return . parseAction . Number
-        report (Win (h, c))  = putStrLn $ "Your " ++ show h ++ " won against " ++ show c ++ "!"
-        report (Lose (h, c)) = putStrLn $ "Your " ++ show h ++ " lost against " ++ show c ++ "."
-        report (Tie (h, _))  = putStrLn $ show h ++ " tied."
+                return (report(result), PResult result)
+          
+  where randomAction = liftIO $ randomRIO (1, 3) >>= return . parseAction . Number
+        report (Win (h, c))  = "Your " ++ show h ++ " won against " ++ show c ++ "!"
+        report (Lose (h, c)) = "Your " ++ show h ++ " lost against " ++ show c ++ "."
+        report (Tie (h, _))  = show h ++ " tied."
 
 databasePath :: FilePath
 databasePath = "./db/turns.ldb"
 
-save :: Result -> IO ()
-save result = runResourceT $ do
-  db <- open databasePath [CreateIfMissing, CacheSize 2048]
+save :: MonadResource m => DB -> Result -> m ()
+save db result = do
   v <- get db [] (encodeUtf8 "results")
   let results = case v of
-                  Just x -> result:(decode' x :: [Result])
-                  Nothing -> [result]
+        Just x -> result:(decode' x :: [Result])
+        Nothing -> [result]
                   
   put db [] (encodeUtf8 "results") (encode' results)
 
-reportTurns :: IO ()
-reportTurns = runResourceT $ do
-  db <- open databasePath [CreateIfMissing, CacheSize 2048]
+reportTurns :: MonadResource m => DB -> m ()
+reportTurns db = do
   v <- get db [] (encodeUtf8 "results")
   liftIO $ print (decode' (fromJust v) :: [Result])
-
--- saveValue :: MonadResource m => Text -> m ()
--- saveValue value = do
---   db <- open databasePath [CreateIfMissing, CacheSize 2048]
---   put db [] (encodeUtf8 "foo") (encodeUtf8 value)
-
--- readValue :: MonadResource m => m ()
--- readValue = do
---   db <- open databasePath [CreateIfMissing, CacheSize 2048]
---   get db [] (encodeUtf8 "foo") >>= liftIO . print
 
 parseAction :: RawAction -> Action
 parseAction a = case formatted a of
