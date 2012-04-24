@@ -26,9 +26,9 @@ data Result = Win {turn :: Turn} | Lose {turn :: Turn} | Tie {turn :: Turn}
 
 data Processed = PResult Result | PQuit | PHelp
 
-data Strategy = Strategy { choose :: MonadResource m => Action -> m Action, 
+data Strategy = Strategy { choose :: MonadResource m => Action -> m Action,
                            notify :: MonadResource m => Result -> m () }
-                
+
 instance Binary Action where
   put a = Bin.put (intForAction a)
     where intForAction :: Action -> Int
@@ -104,11 +104,11 @@ getTurns :: MonadResource m => DB -> m [Result]
 getTurns db = do
   v <- get db [] (encodeUtf8 "results")
   return $ decode' (fromJust v)
-  
+
 randomStrategy :: Strategy
 randomStrategy = Strategy {choose=chooser, notify=notifier}
   where chooser _ = liftIO $ randomRIO (1, 3) >>= return . parseAction . Number
-        notifier _ = return () 
+        notifier _ = return ()
 
 parseAction :: RawAction -> Action
 parseAction a = case formatted a of
