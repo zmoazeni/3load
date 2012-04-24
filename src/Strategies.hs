@@ -47,8 +47,7 @@ historyStrategy :: DB -> Strategy
 historyStrategy db = Strategy {choose=chooser, notify=notifier}
   where chooser :: MonadResource m => m Action
         chooser = do
-          last2' <- last2
-          actions <- previousActions last2'
+          (_, actions) <- findActionPattern
           case actions of
             [] -> do
               liftIO $ putStrLn "Couldn't find hisory"
@@ -57,24 +56,36 @@ historyStrategy db = Strategy {choose=chooser, notify=notifier}
 
         notifier :: MonadResource m => Result -> m ()
         notifier result = do
-          last2' <- last2
-          actions <- previousActions last2'
+          (pattern, actions) <- findActionPattern
           let (u, _) = turn result
-          put db [] (encode' last2') (encode' (u:actions))
+          put db [] (encode' pattern) (encode' (u:actions))
           return ()
+          
+        findActionPattern :: MonadResource m => m ([Action], [Action])
+        findActionPattern = do
+          last4' <- last4
+          let patterns = actionPatterns [] last4'
+          actionGroups <- mapM previousActions patterns
+          case filter (\(_, a) -> null a) actionGroups of
+            []    -> return ([], [])
+            (x:_) -> return x
+          where actionPatterns :: [[Action]] -> [Action] -> [[Action]]
+                actionPatterns acc [] = acc
+                actionPatterns acc (x:xs) = actionPatterns ([x]:acc) xs
 
-        previousActions history = do
-          v <- get db [] (encode' history)
+        previousActions :: MonadResource m => [Action] -> m ([Action], [Action])
+        previousActions pattern = do
+          v <- get db [] (encode' pattern)
           case v of
-            Just x -> return (decode' x)
-            Nothing -> return []
+            Just x  -> return (pattern, (decode' x))
+            Nothing -> return (pattern, [])
 
-        last2 :: MonadResource m => m [Action]
-        last2 = do
+        last4 :: MonadResource m => m [Action]
+        last4 = do
           results <- getTurns db
           let userActions = [u | r <- results, let (u, _) = turn r]
-              last2' = take 2 userActions
-          return last2'
+              last4' = take 4 userActions
+          return last4'
           
         mostUsed :: [Action] -> Action
         mostUsed = head . head . sortLength . group . sort 
