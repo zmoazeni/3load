@@ -21,8 +21,8 @@ type Turn = (Action, Action)
 
 data Result = Win {turn :: Turn} | Lose {turn :: Turn} | Tie {turn :: Turn}
             deriving Show
-                     
-data Processed = PResult Result | PQuit | PHelp                     
+
+data Processed = PResult Result | PQuit | PHelp
 
 instance Binary Action where
   put a = Bin.put (intForAction a)
@@ -31,20 +31,20 @@ instance Binary Action where
           intForAction Paper    = 2
           intForAction Scissors = 3
           intForAction _        = -1
-          
+
   get = do a <- liftM (Number) $ (Bin.get :: Get Int)
            return (parseAction a)
 
 instance Binary Result where
   put r = do Bin.put intForResult
              Bin.put (turn r)
-                 
+
     where intForResult :: Int
           intForResult = case r of
             Win _  -> 0
             Lose _ -> 1
             Tie _  -> 2
-            
+
   get = do i <- Bin.get :: Get Int
            t <- Bin.get :: Get Turn
            return $ case i of
@@ -53,12 +53,12 @@ instance Binary Result where
              2 -> Tie t
              e -> error $ "Unknown result " ++ (show e)
 
-main :: IO ()             
+main :: IO ()
 main = runResourceT $ do
   db <- open databasePath [CreateIfMissing, CacheSize 2048]
   forever $ processLine db
-  
-  where processLine db = do 
+
+  where processLine db = do
           line <- liftIO $ getLine
           (report, processed) <- process line
           liftIO $ putStrLn report
@@ -68,7 +68,7 @@ main = runResourceT $ do
             PResult r -> do saveTurn db r
                             turns <- getTurns db
                             liftIO $ print turns
-    
+
 process :: MonadResource m => String -> m (String, Processed)
 process input = case parseAction (String input) of
   Quit    -> return ("exiting", PQuit)
@@ -76,7 +76,7 @@ process input = case parseAction (String input) of
   c       -> do r <- randomAction
                 let result = evaluate (c, r)
                 return (report(result), PResult result)
-          
+
   where randomAction = liftIO $ randomRIO (1, 3) >>= return . parseAction . Number
         report (Win (h, c))  = "Your " ++ show h ++ " won against " ++ show c ++ "!"
         report (Lose (h, c)) = "Your " ++ show h ++ " lost against " ++ show c ++ "."
@@ -91,7 +91,7 @@ saveTurn db result = do
   let results = case v of
         Just x -> result:(decode' x :: [Result])
         Nothing -> [result]
-                  
+
   put db [] (encodeUtf8 "results") (encode' results)
 
 getTurns :: MonadResource m => DB -> m [Result]
