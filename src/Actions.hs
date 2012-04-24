@@ -15,7 +15,7 @@ import Data.Char
 data RawAction = String String | Number Int
 
 data Action = Rock | Paper | Scissors | Quit | Invalid
-            deriving Show
+            deriving (Show, Ord, Eq)
 
 type Turn = (Action, Action)
 

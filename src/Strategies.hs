@@ -13,6 +13,7 @@ import Database.LevelDB
 import Control.Monad.IO.Class (liftIO)
 import System.Random
 import Data.Text.Encoding
+import Data.List
 
 import Conversions
 import Actions
@@ -49,10 +50,10 @@ historyStrategy db = Strategy {choose=chooser, notify=notifier}
           last2' <- last2
           actions <- previousActions last2'
           case actions of
-            (x:_) -> return $ counterAction x
             [] -> do
               liftIO $ putStrLn "Couldn't find hisory"
               choose randomStrategy
+            xs -> return . counterAction $ mostUsed xs
 
         notifier :: MonadResource m => Result -> m ()
         notifier result = do
@@ -74,4 +75,8 @@ historyStrategy db = Strategy {choose=chooser, notify=notifier}
           let userActions = [u | r <- results, let (u, _) = turn r]
               last2' = take 2 userActions
           return last2'
+          
+        mostUsed :: [Action] -> Action
+        mostUsed = head . head . sortLength . group . sort 
+          where sortLength = sortBy (\a b -> length b `compare` length a)
 
