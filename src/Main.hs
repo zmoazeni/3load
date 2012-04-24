@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+
 
 import Data.Char
 import Control.Monad
@@ -24,6 +26,9 @@ data Result = Win {turn :: Turn} | Lose {turn :: Turn} | Tie {turn :: Turn}
 
 data Processed = PResult Result | PQuit | PHelp
 
+data Strategy = Strategy { choose :: MonadResource m => Action -> m Action, 
+                           notify :: MonadResource m => Result -> m () }
+                
 instance Binary Action where
   put a = Bin.put (intForAction a)
     where intForAction :: Action -> Int
@@ -56,29 +61,30 @@ instance Binary Result where
 main :: IO ()
 main = runResourceT $ do
   db <- open databasePath [CreateIfMissing, CacheSize 2048]
-  forever $ processLine db
+  let strategy = randomStrategy
+  forever $ processLine strategy db
 
-  where processLine db = do
+  where processLine strategy db = do
           line <- liftIO $ getLine
-          (report, processed) <- process line
+          (report, processed) <- process strategy line
           liftIO $ putStrLn report
           case processed of
             PQuit     -> liftIO $ exitWith ExitSuccess
             PHelp     -> return ()
             PResult r -> do saveTurn db r
+                            notify strategy r
                             turns <- getTurns db
                             liftIO $ print turns
 
-process :: MonadResource m => String -> m (String, Processed)
-process input = case parseAction (String input) of
-  Quit    -> return ("exiting", PQuit)
-  Invalid -> return ("Unknown action. <rock|paper|scissors|quit>", PHelp)
-  c       -> do r <- randomAction
-                let result = evaluate (c, r)
-                return (report(result), PResult result)
+process :: MonadResource m => Strategy -> String -> m (String, Processed)
+process strategy input = case parseAction (String input) of
+  Quit        -> return ("exiting", PQuit)
+  Invalid     -> return ("Unknown action. <rock|paper|scissors|quit>", PHelp)
+  userAction -> do aiAction <- choose strategy userAction
+                   let result = evaluate (userAction, aiAction)
+                   return (report(result), PResult result)
 
-  where randomAction = liftIO $ randomRIO (1, 3) >>= return . parseAction . Number
-        report (Win (h, c))  = "Your " ++ show h ++ " won against " ++ show c ++ "!"
+  where report (Win (h, c))  = "Your " ++ show h ++ " won against " ++ show c ++ "!"
         report (Lose (h, c)) = "Your " ++ show h ++ " lost against " ++ show c ++ "."
         report (Tie (h, _))  = show h ++ " tied."
 
@@ -98,6 +104,11 @@ getTurns :: MonadResource m => DB -> m [Result]
 getTurns db = do
   v <- get db [] (encodeUtf8 "results")
   return $ decode' (fromJust v)
+  
+randomStrategy :: Strategy
+randomStrategy = Strategy {choose=chooser, notify=notifier}
+  where chooser _ = liftIO $ randomRIO (1, 3) >>= return . parseAction . Number
+        notifier _ = return () 
 
 parseAction :: RawAction -> Action
 parseAction a = case formatted a of
