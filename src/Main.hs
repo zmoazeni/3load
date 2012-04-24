@@ -73,8 +73,18 @@ main = runResourceT $ do
             PHelp     -> return ()
             PResult r -> do saveTurn db r
                             notify strategy r
-                            turns <- getTurns db
-                            liftIO $ print turns
+                            reportRecord db
+--                            turns <- getTurns db
+--                            liftIO $ print turns
+
+reportRecord :: MonadResource m => DB -> m ()
+reportRecord db = do
+  turns <- getTurns db
+  let wins = foldr (\r xs -> case r of Win _ -> r:xs; _ -> xs) [] turns
+      losses = foldr (\r xs -> case r of Lose _ -> r:xs; _ -> xs) [] turns
+      ties = foldr (\r xs -> case r of Tie _ -> r:xs; _ -> xs) [] turns
+  liftIO $ putStrLn ("W: " ++ show (length wins) ++ " L: " ++ show (length losses) ++ " T: " ++ show (length ties))
+  return ()
 
 process :: MonadResource m => Strategy -> String -> m (String, Processed)
 process strategy input = case parseAction (String input) of
@@ -117,18 +127,34 @@ historyStrategy :: DB -> Strategy
 historyStrategy db = Strategy {choose=chooser, notify=notifier}
   where chooser :: MonadResource m => m Action
         chooser = do
-          results <- getTurns db
-          let userActions = [u | r <- results, let (u, _) = turn r]
-              last2 = take 2 userActions
-          v <- get db [] (encode' last2)
-          case v of
-            Just x -> return $ counterAction (decode' x)
-            Nothing -> do
+          last2' <- last2
+          actions <- previousActions last2'
+          case actions of
+            (x:_) -> return $ counterAction x
+            [] -> do
               liftIO $ putStrLn "Couldn't find hisory"
               choose randomStrategy
 
         notifier :: MonadResource m => Result -> m ()
-        notifier _ = return ()
+        notifier result = do
+          last2' <- last2
+          actions <- previousActions last2'
+          let (u, _) = turn result
+          put db [] (encode' last2') (encode' (u:actions))
+          return ()
+
+        previousActions history = do
+          v <- get db [] (encode' history)
+          case v of
+            Just x -> return (decode' x)
+            Nothing -> return []
+
+        last2 :: MonadResource m => m [Action]
+        last2 = do
+          results <- getTurns db
+          let userActions = [u | r <- results, let (u, _) = turn r]
+              last2' = take 2 userActions
+          return last2'
 
 counterAction :: Action -> Action
 counterAction a = case a of
