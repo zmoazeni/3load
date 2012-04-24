@@ -8,11 +8,10 @@ import System.Exit
 import System.Random
 import Database.LevelDB
 import Data.Text.Encoding
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (liftIO, MonadIO)
 import Conversions
 import qualified Data.Binary as Bin (get, put)
 import Data.Binary (Binary, Get)
-import Data.Maybe
 
 data RawAction = String String | Number Int
 
@@ -26,7 +25,7 @@ data Result = Win {turn :: Turn} | Lose {turn :: Turn} | Tie {turn :: Turn}
 
 data Processed = PResult Result | PQuit | PHelp
 
-data Strategy = Strategy { choose :: MonadResource m => Action -> m Action,
+data Strategy = Strategy { choose :: MonadResource m => m Action,
                            notify :: MonadResource m => Result -> m () }
 
 instance Binary Action where
@@ -61,7 +60,8 @@ instance Binary Result where
 main :: IO ()
 main = runResourceT $ do
   db <- open databasePath [CreateIfMissing, CacheSize 2048]
-  let strategy = randomStrategy
+--  let strategy = randomStrategy
+  let strategy = historyStrategy db
   forever $ processLine strategy db
 
   where processLine strategy db = do
@@ -80,7 +80,7 @@ process :: MonadResource m => Strategy -> String -> m (String, Processed)
 process strategy input = case parseAction (String input) of
   Quit        -> return ("exiting", PQuit)
   Invalid     -> return ("Unknown action. <rock|paper|scissors|quit>", PHelp)
-  userAction -> do aiAction <- choose strategy userAction
+  userAction -> do aiAction <- choose strategy
                    let result = evaluate (userAction, aiAction)
                    return (report(result), PResult result)
 
@@ -103,12 +103,38 @@ saveTurn db result = do
 getTurns :: MonadResource m => DB -> m [Result]
 getTurns db = do
   v <- get db [] (encodeUtf8 "results")
-  return $ decode' (fromJust v)
+  case v of
+    Just x  -> return (decode' x)
+    Nothing -> return []
 
 randomStrategy :: Strategy
 randomStrategy = Strategy {choose=chooser, notify=notifier}
-  where chooser _ = liftIO $ randomRIO (1, 3) >>= return . parseAction . Number
+  where chooser :: MonadResource m => m Action
+        chooser = liftIO $ randomRIO (1, 3) >>= return . parseAction . Number
         notifier _ = return ()
+
+historyStrategy :: DB -> Strategy
+historyStrategy db = Strategy {choose=chooser, notify=notifier}
+  where chooser :: MonadResource m => m Action
+        chooser = do
+          results <- getTurns db
+          let userActions = [u | r <- results, let (u, _) = turn r]
+              last2 = take 2 userActions
+          v <- get db [] (encode' last2)
+          case v of
+            Just x -> return $ counterAction (decode' x)
+            Nothing -> do
+              liftIO $ putStrLn "Couldn't find hisory"
+              choose randomStrategy
+
+        notifier :: MonadResource m => Result -> m ()
+        notifier _ = return ()
+
+counterAction :: Action -> Action
+counterAction a = case a of
+  Rock     -> Paper
+  Paper    -> Scissors
+  _        -> Rock
 
 parseAction :: RawAction -> Action
 parseAction a = case formatted a of
