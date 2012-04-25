@@ -18,8 +18,8 @@ import Data.List
 import Conversions
 import Actions
 
-data Strategy = Strategy { choose :: MonadResource m => m Action,
-                           notify :: MonadResource m => Result -> m () }
+data Strategy = Strategy { choose :: MonadResource m => [Result] -> m Action,
+                           notify :: MonadResource m => [Result] -> Result -> m () }
 
 saveTurn :: MonadResource m => DB -> Result -> m ()
 saveTurn db result = do
@@ -39,55 +39,62 @@ getTurns db = do
 
 randomStrategy :: Strategy
 randomStrategy = Strategy {choose=chooser, notify=notifier}
-  where chooser :: MonadResource m => m Action
-        chooser = liftIO $ randomRIO (1, 3) >>= return . parseAction . Number
-        notifier _ = return ()
+  where chooser :: MonadResource m => [Result] -> m Action
+        chooser _ = liftIO $ randomRIO (1, 3) >>= return . parseAction . Number
+        notifier _ _ = return ()
 
 historyStrategy :: DB -> Strategy
 historyStrategy db = Strategy {choose=chooser, notify=notifier}
-  where chooser :: MonadResource m => m Action
-        chooser = do
-          (_, actions) <- findActionPattern
+  where chooser :: MonadResource m => [Result] -> m Action
+        chooser results = do
+          patternActionGroups <- mapM previousActionsForPattern (patterns results)
+          let (_, actions) = firstPatternAndAction patternActionGroups
+          
           case actions of
             [] -> do
               liftIO $ putStrLn "Couldn't find hisory"
-              choose randomStrategy
-            xs -> return . counterAction $ mostUsed xs
-
-        notifier :: MonadResource m => Result -> m ()
-        notifier result = do
-          (pattern, actions) <- findActionPattern
-          let (u, _) = turn result
-          put db [] (encode' pattern) (encode' (u:actions))
-          return ()
+              choose randomStrategy results
+            xs -> return . counterAction $ mostUsedAction xs
           
-        findActionPattern :: MonadResource m => m ([Action], [Action])
-        findActionPattern = do
-          last4' <- last4
-          let patterns = actionPatterns [] last4'
-          actionGroups <- mapM previousActions patterns
-          case filter (\(_, a) -> null a) actionGroups of
-            []    -> return ([], [])
-            (x:_) -> return x
-          where actionPatterns :: [[Action]] -> [Action] -> [[Action]]
-                actionPatterns acc [] = acc
-                actionPatterns acc (x:xs) = actionPatterns ([x]:acc) xs
-
-        previousActions :: MonadResource m => [Action] -> m ([Action], [Action])
-        previousActions pattern = do
+        notifier :: MonadResource m => [Result] -> Result -> m ()
+        notifier results newResult = do
+          patternActionGroups <- mapM previousActionsForPattern (patterns results)
+          let (pattern, actions) = firstPatternAndAction patternActionGroups
+              (currentUserAction, _) = turn newResult
+              (lastUserAction, _) = case results of
+                (r:_) -> turn r
+                _ -> (Invalid, Invalid)
+          case pattern of
+            [] -> if not(null results) 
+                  then put db [] (encode' [lastUserAction]) (encode' [currentUserAction]) >> return ()
+                  else return ()
+            _  -> do put db [] (encode' pattern) (encode' (currentUserAction:actions))
+                     return ()
+        
+        previousActionsForPattern :: MonadResource m => [Action] -> m ([Action], [Action])
+        previousActionsForPattern pattern = do
           v <- get db [] (encode' pattern)
           case v of
             Just x  -> return (pattern, (decode' x))
             Nothing -> return (pattern, [])
+            
+        patterns :: [Result] -> [[Action]]
+        patterns = splitVariations . recentActionsForResults
+          where splitVariations actions = splitVariations' [] actions 
+                splitVariations' acc [] = acc
+                splitVariations' acc (x:xs) = splitVariations' ([x]:acc) xs
+        
+        firstPatternAndAction :: [([Action], [Action])] -> ([Action], [Action])
+        firstPatternAndAction actionGroups = do
+          case filter (\(_, a) -> not(null a)) actionGroups of
+            []    -> ([], [])
+            (x:_) -> x
 
-        last4 :: MonadResource m => m [Action]
-        last4 = do
-          results <- getTurns db
-          let userActions = [u | r <- results, let (u, _) = turn r]
-              last4' = take 4 userActions
-          return last4'
+        recentActionsForResults :: [Result] -> [Action]
+        recentActionsForResults results = let userActions = [u | r <- results, let (u, _) = turn r]
+                                          in take 4 userActions
           
-        mostUsed :: [Action] -> Action
-        mostUsed = head . head . sortLength . group . sort 
+        mostUsedAction :: [Action] -> Action
+        mostUsedAction = head . head . sortLength . group . sort 
           where sortLength = sortBy (\a b -> length b `compare` length a)
 

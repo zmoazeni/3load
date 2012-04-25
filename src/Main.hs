@@ -15,13 +15,14 @@ main = runResourceT $ do
 
   where processLine strategy db = do
           line <- liftIO $ getLine
-          (report, processed) <- process strategy line
+          (report, processed) <- process strategy line db
           liftIO $ putStrLn report
           case processed of
             PQuit     -> liftIO $ exitWith ExitSuccess
             PHelp     -> return ()
-            PResult r -> do saveTurn db r
-                            notify strategy r
+            PResult r -> do turns <- getTurns db
+                            saveTurn db r
+                            notify strategy turns r
                             reportRecord db
 
 reportRecord :: MonadResource m => DB -> m ()
@@ -33,11 +34,12 @@ reportRecord db = do
   liftIO $ putStrLn ("W: " ++ show (length wins) ++ " L: " ++ show (length losses) ++ " T: " ++ show (length ties))
   return ()
 
-process :: MonadResource m => Strategy -> String -> m (String, Processed)
-process strategy input = case parseAction (String input) of
+process :: MonadResource m => Strategy -> String -> DB -> m (String, Processed)
+process strategy input db = case parseAction (String input) of
   Quit        -> return ("exiting", PQuit)
   Invalid     -> return ("Unknown action. <rock|paper|scissors|quit>", PHelp)
-  userAction -> do aiAction <- choose strategy
+  userAction -> do turns <- getTurns db
+                   aiAction <- choose strategy turns
                    let result = evaluate (userAction, aiAction)
                    return (report(result), PResult result)
 
