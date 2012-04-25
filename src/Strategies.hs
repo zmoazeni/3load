@@ -52,7 +52,7 @@ historyStrategy db = Strategy {choose=chooser, notify=notifier}
 
           case actions of
             [] -> do
-              liftIO $ putStrLn "Couldn't find hisory"
+              liftIO $ putStrLn "Couldn't find user history so choosing randomly"
               choose randomStrategy results
             xs -> return . counterAction $ mostUsedAction xs
 
