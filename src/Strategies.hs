@@ -49,41 +49,37 @@ historyStrategy db = Strategy {choose=chooser, notify=notifier}
         chooser results = do
           patternActionGroups <- mapM previousActionsForPattern (patterns results)
           let (_, actions) = firstPatternAndAction patternActionGroups
-          
+
           case actions of
             [] -> do
               liftIO $ putStrLn "Couldn't find hisory"
               choose randomStrategy results
             xs -> return . counterAction $ mostUsedAction xs
-          
+
         notifier :: MonadResource m => [Result] -> Result -> m ()
         notifier results newResult = do
           patternActionGroups <- mapM previousActionsForPattern (patterns results)
           let (pattern, actions) = firstPatternAndAction patternActionGroups
               (currentUserAction, _) = turn newResult
-              (lastUserAction, _) = case results of
-                (r:_) -> turn r
-                _ -> (Invalid, Invalid)
           case pattern of
-            [] -> if not(null results) 
-                  then put db [] (encode' [lastUserAction]) (encode' [currentUserAction]) >> return ()
-                  else return ()
-            _  -> do put db [] (encode' pattern) (encode' (currentUserAction:actions))
-                     return ()
-        
+            [] -> case results of
+              []    -> return ()
+              (r:_) -> put db [] (encode' [fst $ turn r]) (encode' [currentUserAction]) >> return ()
+            _  -> put db [] (encode' pattern) (encode' (currentUserAction:actions)) >> return ()
+
         previousActionsForPattern :: MonadResource m => [Action] -> m ([Action], [Action])
         previousActionsForPattern pattern = do
           v <- get db [] (encode' pattern)
           case v of
             Just x  -> return (pattern, (decode' x))
             Nothing -> return (pattern, [])
-            
+
         patterns :: [Result] -> [[Action]]
         patterns = splitVariations . recentActionsForResults
-          where splitVariations actions = splitVariations' [] actions 
+          where splitVariations actions = splitVariations' [] actions
                 splitVariations' acc [] = acc
                 splitVariations' acc (x:xs) = splitVariations' ([x]:acc) xs
-        
+
         firstPatternAndAction :: [([Action], [Action])] -> ([Action], [Action])
         firstPatternAndAction actionGroups = do
           case filter (\(_, a) -> not(null a)) actionGroups of
@@ -93,8 +89,8 @@ historyStrategy db = Strategy {choose=chooser, notify=notifier}
         recentActionsForResults :: [Result] -> [Action]
         recentActionsForResults results = let userActions = [u | r <- results, let (u, _) = turn r]
                                           in take 4 userActions
-          
+
         mostUsedAction :: [Action] -> Action
-        mostUsedAction = head . head . sortLength . group . sort 
+        mostUsedAction = head . head . sortLength . group . sort
           where sortLength = sortBy (\a b -> length b `compare` length a)
 
